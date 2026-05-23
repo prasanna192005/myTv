@@ -35,6 +35,9 @@ export default function PlayerPage({ params }: PlayerPageProps) {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [hostIp, setHostIp] = useState('127.0.0.1');
   const [shareOpen, setShareOpen] = useState(false);
+  const [hasSubtitles, setHasSubtitles] = useState(false);
+  const [subtitlesVisible, setSubtitlesVisible] = useState(true);
+  const [mediaType, setMediaType] = useState<'video' | 'image'>('video');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,11 +63,186 @@ export default function PlayerPage({ params }: PlayerPageProps) {
           const video = data.videos.find((v: any) => v.id === id);
           if (video) {
             setVideoName(video.name);
+            setHasSubtitles(!!video.subtitlePath);
+            setMediaType(video.type || 'video');
           }
         }
       })
       .catch((err) => console.error('Failed to load video metadata:', err));
   }, [id]);
+
+  // Slideshow Navigation Helper
+  const navigateImage = (direction: 'next' | 'prev') => {
+    fetch('/api/videos')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.videos) {
+          const imagesOnly = data.videos.filter((v: any) => v.type === 'image');
+          if (imagesOnly.length <= 1) return;
+          const currentIndex = imagesOnly.findIndex((v: any) => v.id === id);
+          if (currentIndex === -1) return;
+          let targetIndex = currentIndex + (direction === 'next' ? 1 : -1);
+          if (targetIndex >= imagesOnly.length) {
+            targetIndex = 0;
+          } else if (targetIndex < 0) {
+            targetIndex = imagesOnly.length - 1;
+          }
+          const targetImage = imagesOnly[targetIndex];
+          router.replace(`/player/${targetImage.id}`);
+        }
+      })
+      .catch((err) => console.error('Slideshow navigation error:', err));
+  };
+
+  // TV Slideshow auto-advance timer
+  useEffect(() => {
+    if (mediaType !== 'image' || !playing) return;
+    setDuration(5);
+    const interval = setInterval(() => {
+      setCurrentTime((prev) => {
+        if (prev >= 4.9) {
+          navigateImage('next');
+          return 0;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [id, playing, mediaType]);
+
+  // TV Remote: Publish player state every 1 second
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (videoError) return;
+      
+      let state;
+      if (mediaType === 'video') {
+        if (!videoRef.current) return;
+        state = {
+          playing,
+          currentTime: videoRef.current.currentTime,
+          duration: videoRef.current.duration || 0,
+          volume: videoRef.current.volume,
+          muted: videoRef.current.muted,
+          videoName,
+          hasSubtitles,
+          subtitlesVisible,
+          mediaType: 'video',
+        };
+      } else {
+        state = {
+          playing,
+          currentTime,
+          duration: 5,
+          volume: 0,
+          muted: true,
+          videoName,
+          hasSubtitles: false,
+          subtitlesVisible: false,
+          mediaType: 'image',
+        };
+      }
+
+      try {
+        await fetch(`/api/remote/${id}/state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(state),
+        });
+      } catch (err) {
+        // ignore
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [id, playing, videoName, videoError, hasSubtitles, subtitlesVisible, mediaType, currentTime]);
+
+  // TV Remote: Poll and execute incoming commands from remote controller
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (videoError) return;
+      if (mediaType === 'video' && !videoRef.current) return;
+
+      try {
+        const res = await fetch(`/api/remote/${id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.commands && data.commands.length > 0) {
+          for (const cmd of data.commands) {
+            switch (cmd.command) {
+              case 'play':
+                if (mediaType === 'video' && videoRef.current) {
+                  videoRef.current.play().catch(() => {});
+                }
+                setPlaying(true);
+                break;
+              case 'pause':
+                if (mediaType === 'video' && videoRef.current) {
+                  videoRef.current.pause();
+                }
+                setPlaying(false);
+                break;
+              case 'seek':
+                if (mediaType === 'video' && videoRef.current) {
+                  videoRef.current.currentTime = Number(cmd.value);
+                  setCurrentTime(Number(cmd.value));
+                } else {
+                  setCurrentTime(Number(cmd.value));
+                }
+                break;
+              case 'volume':
+                if (mediaType === 'video' && videoRef.current) {
+                  const volVal = Number(cmd.value);
+                  videoRef.current.volume = volVal;
+                  setVolume(volVal);
+                  setMuted(volVal === 0);
+                }
+                break;
+              case 'mute':
+                if (mediaType === 'video' && videoRef.current) {
+                  videoRef.current.muted = true;
+                  setMuted(true);
+                }
+                break;
+              case 'unmute':
+                if (mediaType === 'video' && videoRef.current) {
+                  videoRef.current.muted = false;
+                  setMuted(false);
+                }
+                break;
+              case 'fullscreen':
+                toggleFullscreen();
+                break;
+              case 'subtitles':
+                if (mediaType === 'video') {
+                  toggleSubtitles();
+                }
+                break;
+              case 'next_image':
+                if (mediaType === 'image') {
+                  navigateImage('next');
+                }
+                break;
+              case 'prev_image':
+                if (mediaType === 'image') {
+                  navigateImage('prev');
+                }
+                break;
+              case 'back':
+                router.push('/');
+                break;
+            }
+            resetControlsTimeout();
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [id, videoError, mediaType, duration]);
 
   // Video Source URL
   const videoSrc = `/api/stream/${id}`;
@@ -97,39 +275,46 @@ export default function PlayerPage({ params }: PlayerPageProps) {
 
   // Video State Handlers
   const handlePlayPause = () => {
-    if (!videoRef.current) return;
-    if (playing) {
-      videoRef.current.pause();
+    if (mediaType === 'video') {
+      if (!videoRef.current) return;
+      if (playing) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play().catch(() => {});
+      }
     } else {
-      videoRef.current.play().catch(() => {});
+      setPlaying(!playing);
     }
   };
 
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
+    if (mediaType === 'video' && videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
     }
   };
 
   const handleLoadedMetadata = () => {
-    if (videoRef.current) {
+    if (mediaType === 'video' && videoRef.current) {
       setDuration(videoRef.current.duration);
     }
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || !duration) return;
+    if (!duration) return;
+    if (mediaType === 'video' && !videoRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const width = rect.width;
     const percentage = Math.max(0, Math.min(1, clickX / width));
     const newTime = percentage * duration;
-    videoRef.current.currentTime = newTime;
+    if (mediaType === 'video' && videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
     setCurrentTime(newTime);
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!videoRef.current) return;
+    if (mediaType !== 'video' || !videoRef.current) return;
     const val = parseFloat(e.target.value);
     videoRef.current.volume = val;
     setVolume(val);
@@ -137,10 +322,22 @@ export default function PlayerPage({ params }: PlayerPageProps) {
   };
 
   const toggleMute = () => {
-    if (!videoRef.current) return;
+    if (mediaType !== 'video' || !videoRef.current) return;
     const newMute = !muted;
     videoRef.current.muted = newMute;
     setMuted(newMute);
+  };
+
+  const toggleSubtitles = () => {
+    if (!videoRef.current || videoRef.current.textTracks.length === 0) return;
+    const track = videoRef.current.textTracks[0];
+    if (track.mode === 'showing') {
+      track.mode = 'hidden';
+      setSubtitlesVisible(false);
+    } else {
+      track.mode = 'showing';
+      setSubtitlesVisible(true);
+    }
   };
 
   const toggleFullscreen = () => {
@@ -165,7 +362,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
   // Keyboard Event Handlers
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!videoRef.current) return;
+      if (mediaType === 'video' && !videoRef.current) return;
 
       switch (e.key.toLowerCase()) {
         case ' ':
@@ -176,36 +373,56 @@ export default function PlayerPage({ params }: PlayerPageProps) {
         case 'arrowleft':
         case 'j':
           e.preventDefault();
-          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+          if (mediaType === 'video' && videoRef.current) {
+            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+          } else if (mediaType === 'image') {
+            navigateImage('prev');
+          }
           break;
         case 'arrowright':
         case 'l':
           e.preventDefault();
-          videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
+          if (mediaType === 'video' && videoRef.current) {
+            videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
+          } else if (mediaType === 'image') {
+            navigateImage('next');
+          }
           break;
         case 'arrowup':
           e.preventDefault();
-          const nextVolUp = Math.min(1, videoRef.current.volume + 0.1);
-          videoRef.current.volume = nextVolUp;
-          setVolume(nextVolUp);
-          setMuted(nextVolUp === 0);
+          if (mediaType === 'video' && videoRef.current) {
+            const nextVolUp = Math.min(1, videoRef.current.volume + 0.1);
+            videoRef.current.volume = nextVolUp;
+            setVolume(nextVolUp);
+            setMuted(nextVolUp === 0);
+          }
           resetControlsTimeout();
           break;
         case 'arrowdown':
           e.preventDefault();
-          const nextVolDown = Math.max(0, videoRef.current.volume - 0.1);
-          videoRef.current.volume = nextVolDown;
-          setVolume(nextVolDown);
-          setMuted(nextVolDown === 0);
+          if (mediaType === 'video' && videoRef.current) {
+            const nextVolDown = Math.max(0, videoRef.current.volume - 0.1);
+            videoRef.current.volume = nextVolDown;
+            setVolume(nextVolDown);
+            setMuted(nextVolDown === 0);
+          }
           resetControlsTimeout();
           break;
         case 'f':
           e.preventDefault();
           toggleFullscreen();
           break;
+        case 'c':
+          e.preventDefault();
+          if (mediaType === 'video') {
+            toggleSubtitles();
+          }
+          break;
         case 'm':
           e.preventDefault();
-          toggleMute();
+          if (mediaType === 'video') {
+            toggleMute();
+          }
           break;
         case 'escape':
           if (document.fullscreenElement) {
@@ -218,7 +435,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [duration, playing, muted]);
+  }, [duration, playing, muted, mediaType]);
 
   // Video Error Handler
   const handleVideoError = () => {
@@ -297,19 +514,39 @@ export default function PlayerPage({ params }: PlayerPageProps) {
             </p>
           </div>
         ) : (
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            autoPlay
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onError={handleVideoError}
-            onClick={handlePlayPause}
-            onDoubleClick={toggleFullscreen}
-            className="h-full w-full object-contain max-h-screen"
-          />
+          mediaType === 'video' ? (
+            <video
+              ref={videoRef}
+              src={videoSrc}
+              autoPlay
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={handleLoadedMetadata}
+              onError={handleVideoError}
+              onClick={handlePlayPause}
+              onDoubleClick={toggleFullscreen}
+              className="h-full w-full object-contain max-h-screen"
+            >
+              {hasSubtitles && (
+                <track
+                  src={`/api/subtitles/${id}`}
+                  kind="subtitles"
+                  srcLang="en"
+                  label="English"
+                  default
+                />
+              )}
+            </video>
+          ) : (
+            <img
+              src={`/api/media/image/${id}`}
+              alt={videoName}
+              onClick={handlePlayPause}
+              onDoubleClick={toggleFullscreen}
+              className="h-full w-full object-contain max-h-screen select-none"
+            />
+          )
         )}
 
         {/* Custom Overlaid Video Controls */}
@@ -331,11 +568,23 @@ export default function PlayerPage({ params }: PlayerPageProps) {
           {/* Buttons & Indicators */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
+              {mediaType === 'image' && (
+                <button
+                  onClick={() => navigateImage('prev')}
+                  className="text-zinc-350 hover:text-zinc-100 transition-colors"
+                  title="Previous Image (Left Arrow)"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+              )}
+
               {/* Play / Pause */}
               <button
                 onClick={handlePlayPause}
                 className="text-zinc-350 hover:text-zinc-100 transition-colors"
-                title={playing ? 'Pause (Space)' : 'Play (Space)'}
+                title={mediaType === 'video' ? (playing ? 'Pause (Space)' : 'Play (Space)') : (playing ? 'Pause Slideshow (Space)' : 'Play Slideshow (Space)')}
               >
                 {playing ? (
                   <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -348,54 +597,76 @@ export default function PlayerPage({ params }: PlayerPageProps) {
                 )}
               </button>
 
-              {/* Volume Controller */}
-              <div className="flex items-center gap-2">
+              {mediaType === 'image' && (
                 <button
-                  onClick={toggleMute}
+                  onClick={() => navigateImage('next')}
                   className="text-zinc-350 hover:text-zinc-100 transition-colors"
-                  title={muted ? 'Unmute (M)' : 'Mute (M)'}
+                  title="Next Image (Right Arrow)"
                 >
-                  {muted || volume === 0 ? (
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
-                      />
-                    </svg>
-                  ) : (
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-                      />
-                    </svg>
-                  )}
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={muted ? 0 : volume}
-                  onChange={handleVolumeChange}
-                  className="w-16 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-zinc-200"
-                  style={{ outline: 'none' }}
-                />
-              </div>
+              )}
+
+              {/* Volume Controller */}
+              {mediaType === 'video' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleMute}
+                    className="text-zinc-350 hover:text-zinc-100 transition-colors"
+                    title={muted ? 'Unmute (M)' : 'Mute (M)'}
+                  >
+                    {muted || volume === 0 ? (
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
+                        />
+                      </svg>
+                    ) : (
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={muted ? 0 : volume}
+                    onChange={handleVolumeChange}
+                    className="w-16 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-zinc-200"
+                    style={{ outline: 'none' }}
+                  />
+                </div>
+              )}
 
               {/* Time Indicators */}
               <div className="text-xs font-mono text-zinc-400">
-                {formatTime(currentTime)} <span className="text-zinc-600">/</span> {formatTime(duration)}
+                {mediaType === 'video' ? (
+                  <>
+                    {formatTime(currentTime)} <span className="text-zinc-650 font-sans">/</span> {formatTime(duration)}
+                  </>
+                ) : (
+                  <>
+                    Slide Progress <span className="text-zinc-650 font-sans">({Math.round(currentTime)}s / 5s)</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -405,6 +676,22 @@ export default function PlayerPage({ params }: PlayerPageProps) {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* Subtitles (CC) Button */}
+              {hasSubtitles && (
+                <button
+                  onClick={toggleSubtitles}
+                  className={`transition-colors shrink-0 ${
+                    subtitlesVisible ? 'text-zinc-255 hover:text-zinc-50' : 'text-zinc-600 hover:text-zinc-400'
+                  }`}
+                  title="Subtitles (C)"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <rect x="3" y="5" width="18" height="14" rx="2" strokeWidth={1.8} />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 10h2M7 14h4M13 10h4M13 14h2" />
+                  </svg>
+                </button>
+              )}
+
               {/* Fullscreen Toggle */}
               <button
                 onClick={toggleFullscreen}

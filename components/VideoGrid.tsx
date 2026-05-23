@@ -18,25 +18,33 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
   const [selectedFormat, setSelectedFormat] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'folder'>('name');
   const [sharingVideo, setSharingVideo] = useState<VideoFile | null>(null);
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<'all' | 'video' | 'image'>('all');
 
-  // Extract unique subfolders and extensions
+  // Extract unique subfolders and extensions based on active media tab
   const folders = useMemo(() => {
-    return Array.from(new Set(videos.map((v) => v.folder).filter(Boolean))).sort();
-  }, [videos]);
+    const filteredByTab = videos.filter(
+      (v) => mediaTypeFilter === 'all' || v.type === mediaTypeFilter
+    );
+    return Array.from(new Set(filteredByTab.map((v) => v.folder).filter(Boolean))).sort();
+  }, [videos, mediaTypeFilter]);
 
   const formats = useMemo(() => {
-    return Array.from(new Set(videos.map((v) => v.extension))).sort();
-  }, [videos]);
+    const filteredByTab = videos.filter(
+      (v) => mediaTypeFilter === 'all' || v.type === mediaTypeFilter
+    );
+    return Array.from(new Set(filteredByTab.map((v) => v.extension))).sort();
+  }, [videos, mediaTypeFilter]);
 
-  // Filters and sorts videos
+  // Filters and sorts videos/images
   const processedVideos = useMemo(() => {
     let result = videos.filter((video) => {
+      const matchesType = mediaTypeFilter === 'all' || video.type === mediaTypeFilter;
       const matchesSearch =
         video.name.toLowerCase().includes(search.toLowerCase()) ||
         video.relativePath.toLowerCase().includes(search.toLowerCase());
       const matchesFolder = selectedFolder === '' || video.folder === selectedFolder;
       const matchesFormat = selectedFormat === '' || video.extension === selectedFormat;
-      return matchesSearch && matchesFolder && matchesFormat;
+      return matchesType && matchesSearch && matchesFolder && matchesFormat;
     });
 
     if (sortBy === 'name') {
@@ -48,7 +56,7 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
     }
 
     return result;
-  }, [videos, search, selectedFolder, selectedFormat, sortBy]);
+  }, [videos, search, selectedFolder, selectedFormat, sortBy, mediaTypeFilter]);
 
   const handleShareClick = (e: React.MouseEvent, video: VideoFile) => {
     e.preventDefault();
@@ -64,6 +72,40 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
 
   return (
     <div className="space-y-6">
+      {/* Media Type Tabs */}
+      <div className="flex border-b border-zinc-850 pb-px gap-6 text-sm select-none">
+        <button
+          onClick={() => { setMediaTypeFilter('all'); setSelectedFormat(''); setSelectedFolder(''); }}
+          className={`pb-2.5 font-medium border-b-2 transition-all ${
+            mediaTypeFilter === 'all'
+              ? 'border-zinc-200 text-zinc-100 font-semibold'
+              : 'border-transparent text-zinc-550 hover:text-zinc-350'
+          }`}
+        >
+          All Media ({videos.length})
+        </button>
+        <button
+          onClick={() => { setMediaTypeFilter('video'); setSelectedFormat(''); setSelectedFolder(''); }}
+          className={`pb-2.5 font-medium border-b-2 transition-all ${
+            mediaTypeFilter === 'video'
+              ? 'border-zinc-200 text-zinc-100 font-semibold'
+              : 'border-transparent text-zinc-550 hover:text-zinc-350'
+          }`}
+        >
+          Videos ({videos.filter(v => v.type === 'video').length})
+        </button>
+        <button
+          onClick={() => { setMediaTypeFilter('image'); setSelectedFormat(''); setSelectedFolder(''); }}
+          className={`pb-2.5 font-medium border-b-2 transition-all ${
+            mediaTypeFilter === 'image'
+              ? 'border-zinc-200 text-zinc-100 font-semibold'
+              : 'border-transparent text-zinc-550 hover:text-zinc-350'
+          }`}
+        >
+          Photos ({videos.filter(v => v.type === 'image').length})
+        </button>
+      </div>
+
       {/* Filters Toolbar */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border border-zinc-800 bg-zinc-900/40 p-4 rounded-md">
         <div className="flex flex-1 flex-col gap-3 sm:flex-row">
@@ -71,7 +113,7 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="Search library..."
+              placeholder={`Search ${mediaTypeFilter === 'all' ? 'library' : mediaTypeFilter === 'video' ? 'videos' : 'photos'}...`}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full border border-zinc-800 bg-zinc-950 px-3 py-2 pl-9 text-sm text-zinc-100 placeholder-zinc-550 rounded-md focus:outline-none focus:border-zinc-700"
@@ -160,9 +202,9 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
 
       {/* Grid List */}
       {processedVideos.length === 0 ? (
-        <div className="flex flex-col items-center justify-center border border-dashed border-zinc-800 py-16 text-center rounded-md">
+        <div className="flex flex-col items-center justify-center border border-dashed border-zinc-850 py-16 text-center rounded-md">
           <svg
-            className="h-10 w-10 text-zinc-600 mb-4"
+            className="h-10 w-10 text-zinc-650 mb-4"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -170,78 +212,98 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth={2}
-              d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"
+              strokeWidth={1.8}
+              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
             />
           </svg>
-          <h3 className="text-sm font-medium text-zinc-300">No video files found</h3>
-          <p className="mt-1 text-xs text-zinc-550 max-w-xs">
+          <h3 className="text-sm font-medium text-zinc-350">No files found</h3>
+          <p className="mt-1 text-xs text-zinc-550 max-w-xs leading-relaxed">
             {videos.length === 0
-              ? 'Ensure your library directory contains supported formats (.mp4, .mkv, .webm).'
-              : 'Try clearing your active filters or query.'}
+              ? 'Ensure your library directory contains supported videos (.mp4, .mkv) or photos (.jpg, .png).'
+              : 'Try clearing your active filters or search query.'}
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {processedVideos.map((video) => (
             <Link
               key={video.id}
               href={`/player/${video.id}`}
-              className="group relative flex flex-col justify-between border border-zinc-850 bg-zinc-900 p-4 rounded-md transition-all hover:border-zinc-700 hover:bg-zinc-900/90 shadow-sm"
+              className="group flex flex-col overflow-hidden border border-zinc-850 bg-zinc-900 rounded-md transition-all hover:border-zinc-750 hover:bg-zinc-900/90 shadow-sm"
             >
-              {/* File Icon Overlay */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-950 border border-zinc-800 text-zinc-400 group-hover:text-zinc-200 group-hover:border-zinc-700 rounded transition-all">
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.8}
-                      d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+              {/* Media Card Thumbnail Section */}
+              <div className="relative aspect-video w-full bg-zinc-950 border-b border-zinc-850/80 overflow-hidden flex items-center justify-center select-none">
+                {video.type === 'video' ? (
+                  video.posterPath ? (
+                    <img
+                      src={`/api/media/image/${video.id}?poster=true`}
+                      alt={video.name}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                     />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.8}
-                      d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-1">
-                    <h4 className="truncate text-sm font-medium text-zinc-200 group-hover:text-zinc-50 transition-colors" title={video.name}>
-                      {video.name}
-                    </h4>
-                    {/* Play on TV trigger */}
-                    <button
-                      onClick={(e) => handleShareClick(e, video)}
-                      className="opacity-0 group-hover:opacity-100 hover:text-zinc-150 text-zinc-500 p-0.5 transition-opacity duration-150 shrink-0"
-                      title="Open Link on TV"
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-zinc-700 group-hover:text-zinc-500 transition-colors">
+                      <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          strokeWidth={1.8}
-                          d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          strokeWidth={1.5}
+                          d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"
                         />
                       </svg>
-                    </button>
-                  </div>
+                    </div>
+                  )
+                ) : (
+                  <img
+                    src={`/api/media/image/${video.id}`}
+                    alt={video.name}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                )}
+
+                {/* Media Type Tag */}
+                <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/75 border border-zinc-800/80 text-[8px] font-bold font-mono text-zinc-400 uppercase tracking-wider">
+                  {video.type}
+                </div>
+
+                {/* Play on TV Button Overlaid on Thumbnail */}
+                <button
+                  onClick={(e) => handleShareClick(e, video)}
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-black/85 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-150 p-1.5 rounded transition-all duration-150 shadow"
+                  title="Open Link on TV"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Media Details */}
+              <div className="flex flex-1 flex-col justify-between p-4">
+                <div className="min-w-0">
+                  <h4 className="truncate text-sm font-medium text-zinc-200 group-hover:text-zinc-50 transition-colors" title={video.name}>
+                    {video.name}
+                  </h4>
                   {video.folder && (
-                    <span className="truncate block mt-0.5 text-[10px] font-mono text-zinc-500">
+                    <span className="truncate block mt-1 text-[10px] font-mono text-zinc-550">
                       {video.folder}
                     </span>
                   )}
                 </div>
-              </div>
 
-              {/* Specs Indicators */}
-              <div className="mt-4 flex items-center justify-between border-t border-zinc-850/60 pt-3">
-                <span className="text-xs text-zinc-400">{video.formattedSize}</span>
-                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium border border-zinc-800 text-zinc-500 rounded bg-zinc-950 uppercase">
-                  {video.extension.replace('.', '')}
-                </span>
+                {/* Card Specs Footer */}
+                <div className="mt-4 flex items-center justify-between border-t border-zinc-850/60 pt-3">
+                  <span className="text-xs text-zinc-500 font-mono">{video.formattedSize}</span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono font-medium border border-zinc-800 text-zinc-500 rounded bg-zinc-950 uppercase">
+                    {video.extension.replace('.', '')}
+                  </span>
+                </div>
               </div>
             </Link>
           ))}

@@ -6,11 +6,12 @@ import SettingsModal from '@/components/SettingsModal';
 import { VideoFile } from '@/lib/videos';
 
 export default function Home() {
-  const [config, setConfig] = useState<{ mediaDirectory: string; exists: boolean } | null>(null);
+  const [config, setConfig] = useState<{ mediaDirectory: string; exists: boolean; hostIp?: string; recentDirectories?: string[] } | null>(null);
   const [videos, setVideos] = useState<VideoFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [remotePairOpen, setRemotePairOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchConfigAndVideos = async (forceScan = false) => {
@@ -53,9 +54,39 @@ export default function Home() {
     fetchConfigAndVideos();
   }, []);
 
+  useEffect(() => {
+    // Poll for remote commands if we are the main TV screen
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/remote/tv-screen');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.commands && data.commands.length > 0) {
+          for (const cmd of data.commands) {
+            if (cmd.command === 'open_video') {
+              // Redirect to player page
+              window.location.href = `/player/${cmd.value}`;
+            }
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const handleSaveConfig = () => {
     // Re-fetch all config and list on saving settings
     fetchConfigAndVideos(true);
+  };
+
+  const getRemoteUrl = () => {
+    const host = config?.hostIp || 'localhost';
+    const port = typeof window !== 'undefined' ? window.location.port : '3000';
+    const cleanPort = port ? `:${port}` : '';
+    return `http://${host}${cleanPort}/remote`;
   };
 
   return (
@@ -76,7 +107,26 @@ export default function Home() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Pair phone remote */}
+          {config && config.exists && (
+            <button
+              onClick={() => setRemotePairOpen(true)}
+              className="flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 text-xs font-medium text-zinc-350 hover:text-zinc-200 rounded-md transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
+                />
+              </svg>
+              Phone Remote
+            </button>
+          )}
+
+          {/* Library settings */}
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 text-xs font-medium text-zinc-350 hover:text-zinc-200 rounded-md transition-colors"
@@ -85,13 +135,13 @@ export default function Home() {
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
+                strokeWidth={1.8}
                 d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
               />
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeWidth={2}
+                strokeWidth={1.8}
                 d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
               />
             </svg>
@@ -155,6 +205,54 @@ export default function Home() {
           onClose={() => setSettingsOpen(false)}
           onSave={handleSaveConfig}
         />
+      )}
+
+      {/* Pair Phone Remote Modal */}
+      {remotePairOpen && config && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-sm border border-zinc-800 bg-zinc-900 p-6 rounded-md shadow-lg text-center">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Pair Phone Remote</h2>
+              <button
+                onClick={() => setRemotePairOpen(false)}
+                className="text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <p className="text-sm font-medium text-zinc-100 mb-2">Control myTV from your Phone</p>
+            <p className="text-xs text-zinc-400 leading-relaxed px-2">
+              Scan this QR code or open the link on your phone/tablet to search, type, and control playback remotely.
+            </p>
+
+            {/* QR Code */}
+            <div className="mx-auto my-5 flex h-48 w-48 items-center justify-center bg-zinc-950 border border-zinc-800 rounded p-3">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                  getRemoteUrl()
+                )}&color=228-228-231&bgcolor=24-24-27`}
+                alt="Remote QR Code"
+                width={200}
+                height={200}
+                className="h-full w-full object-contain"
+              />
+            </div>
+
+            <div className="border border-zinc-850 bg-zinc-950 p-2 rounded-md font-mono text-[11px] text-zinc-350 select-all mb-5 text-center">
+              {getRemoteUrl()}
+            </div>
+
+            <button
+              onClick={() => setRemotePairOpen(false)}
+              className="w-full bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 py-2 text-xs font-semibold text-zinc-200 rounded-md transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
       )}
     </main>
   );
