@@ -16,17 +16,23 @@ export async function GET(
   }
 
   const state = remoteStore.states[targetId];
+  const noCacheHeaders = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  };
+
   if (!state) {
-    return NextResponse.json({ active: false });
+    return NextResponse.json({ active: false }, { headers: noCacheHeaders });
   }
 
   // Check if state is stale (longer than 5 seconds ago)
   const isStale = Date.now() - state.lastUpdated > 5000;
   if (isStale) {
-    return NextResponse.json({ active: false });
+    return NextResponse.json({ active: false }, { headers: noCacheHeaders });
   }
 
-  return NextResponse.json({ active: true, videoId: targetId, state });
+  return NextResponse.json({ active: true, videoId: targetId, state }, { headers: noCacheHeaders });
 }
 
 export async function POST(
@@ -36,7 +42,17 @@ export async function POST(
   const { id } = await params;
   try {
     const body = await request.json();
-    const { playing, currentTime, duration, volume, muted, videoName } = body;
+    const {
+      playing,
+      currentTime,
+      duration,
+      volume,
+      muted,
+      videoName,
+      hasSubtitles,
+      subtitlesVisible,
+      mediaType,
+    } = body;
 
     const newState: PlayerState = {
       playing: !!playing,
@@ -46,6 +62,9 @@ export async function POST(
       muted: !!muted,
       videoName: String(videoName || 'Unknown'),
       lastUpdated: Date.now(),
+      hasSubtitles: !!hasSubtitles,
+      subtitlesVisible: !!subtitlesVisible,
+      mediaType: mediaType || 'video',
     };
 
     remoteStore.states[id] = newState;

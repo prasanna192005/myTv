@@ -8,12 +8,17 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
   // Get and clear commands for this ID
   const pending = remoteStore.commands[id] || [];
   remoteStore.commands[id] = []; // Clear queue
   
-  return NextResponse.json({ commands: pending });
+  return NextResponse.json({ commands: pending }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    }
+  });
 }
 
 export async function POST(

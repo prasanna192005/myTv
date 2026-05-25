@@ -31,13 +31,13 @@ export default function RemotePage() {
   useEffect(() => {
     const initFetch = async () => {
       try {
-        const configRes = await fetch('/api/config');
+        const configRes = await fetch('/api/config', { cache: 'no-store' });
         if (configRes.ok) {
           const configData = await configRes.json();
           setHostIp(configData.hostIp || '127.0.0.1');
         }
 
-        const videosRes = await fetch('/api/videos');
+        const videosRes = await fetch('/api/videos', { cache: 'no-store' });
         if (videosRes.ok) {
           const videosData = await videosRes.json();
           if (videosData.success) {
@@ -57,7 +57,7 @@ export default function RemotePage() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/remote/active/state');
+        const res = await fetch('/api/remote/active/state', { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         if (data.active) {

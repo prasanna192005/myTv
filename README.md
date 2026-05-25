@@ -12,6 +12,7 @@ A fast, seekable, dependency-free local network media streamer built with Next.j
 - **Automated Subtitle Processing**: Scans directory for companion `.srt` or `.vtt` files next to videos. Automatically parses and converts SRT subtitles to WebVTT format on-the-fly, with toggle visibility synced between physical keyboards (`C` hotkey) and the mobile remote controller.
 - **Movie Poster Thumbnails**: Scans for companion image files next to videos (or default folder `poster.jpg`/`folder.jpg` metadata) to create a visual thumbnail card grid.
 - **Standalone Photo Slideshows**: Indexes standalone image files (JPEG, PNG, WEBP, GIF), displays them as high-resolution slideshows on the TV screen, and allows control (previous/next slide, play/pause) from your smartphone remote.
+- **Resume Playback & Watch Progress**: Automatically bookmarks your playback position in local storage. Renders visual red progress indicators on library cards and presents a self-dismissing "Resume Playback" prompt when reopening partly watched media.
 - **Quick Filtering & Search**: Instant searching, sorting by name/size, format filtering, and automatic subdirectory grouping.
 - **Touch & Keyboard Playback**: Fully customizable theater player supporting mobile touch controls and rich keyboard shortcuts.
 - **Secure Local Sandbox**: Restricts video access explicitly to your configured directories to prevent directory traversal attacks.

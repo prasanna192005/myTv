@@ -38,16 +38,41 @@ export default function PlayerPage({ params }: PlayerPageProps) {
   const [hasSubtitles, setHasSubtitles] = useState(false);
   const [subtitlesVisible, setSubtitlesVisible] = useState(true);
   const [mediaType, setMediaType] = useState<'video' | 'image'>('video');
+  const [resumeTime, setResumeTime] = useState<number | null>(null);
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<number | null>(null);
 
+  // Keep latest state in a ref to prevent interval resets during playback
+  const stateRef = useRef({
+    playing,
+    videoName,
+    videoError,
+    hasSubtitles,
+    subtitlesVisible,
+    mediaType,
+    currentTime,
+  });
+
+  useEffect(() => {
+    stateRef.current = {
+      playing,
+      videoName,
+      videoError,
+      hasSubtitles,
+      subtitlesVisible,
+      mediaType,
+      currentTime,
+    };
+  });
+
   // Fetch metadata and host IP for playback and TV sharing
   useEffect(() => {
     setVideoName(`Video ${id}`);
 
-    fetch('/api/config')
+    fetch('/api/config', { cache: 'no-store' })
       .then((res) => res.json())
       .then((data) => {
         if (data.hostIp) {
@@ -56,7 +81,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
       })
       .catch((err) => console.error('Failed to get host IP:', err));
 
-    fetch('/api/videos')
+    fetch('/api/videos', { cache: 'no-store' })
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.videos) {
@@ -70,6 +95,46 @@ export default function PlayerPage({ params }: PlayerPageProps) {
       })
       .catch((err) => console.error('Failed to load video metadata:', err));
   }, [id]);
+
+  // Resume Progress checking on mount/metadata loaded
+  useEffect(() => {
+    if (!duration || mediaType !== 'video') return;
+    
+    try {
+      const saved = localStorage.getItem(`mytv-progress-${id}`);
+      if (saved) {
+        const { currentTime: savedTime, duration: savedDuration } = JSON.parse(saved);
+        // Only prompt if watched more than 10s and not finished (within 15s of end)
+        if (savedTime > 10 && savedTime < savedDuration - 15) {
+          setResumeTime(savedTime);
+          setShowResumePrompt(true);
+          
+          // Auto dismiss prompt after 8 seconds
+          const timer = setTimeout(() => {
+            setShowResumePrompt(false);
+          }, 8000);
+          return () => clearTimeout(timer);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read saved playback progress', e);
+    }
+  }, [id, duration, mediaType]);
+
+  const handleResumePlayback = () => {
+    if (videoRef.current && resumeTime) {
+      videoRef.current.currentTime = resumeTime;
+      setCurrentTime(resumeTime);
+    }
+    setShowResumePrompt(false);
+  };
+
+  const handleStartOver = () => {
+    try {
+      localStorage.removeItem(`mytv-progress-${id}`);
+    } catch (e) {}
+    setShowResumePrompt(false);
+  };
 
   // Slideshow Navigation Helper
   const navigateImage = (direction: 'next' | 'prev') => {
@@ -113,30 +178,57 @@ export default function PlayerPage({ params }: PlayerPageProps) {
   // TV Remote: Publish player state every 1 second
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (videoError) return;
+      const {
+        playing: currentPlaying,
+        videoName: currentVideoName,
+        videoError: currentVideoError,
+        hasSubtitles: currentHasSubtitles,
+        subtitlesVisible: currentSubtitlesVisible,
+        mediaType: currentMediaType,
+        currentTime: currentImageTime,
+      } = stateRef.current;
+
+      if (currentVideoError) return;
       
       let state;
-      if (mediaType === 'video') {
+      if (currentMediaType === 'video') {
         if (!videoRef.current) return;
+        const curTime = videoRef.current.currentTime;
+        const dur = videoRef.current.duration || 0;
+
         state = {
-          playing,
-          currentTime: videoRef.current.currentTime,
-          duration: videoRef.current.duration || 0,
+          playing: currentPlaying,
+          currentTime: curTime,
+          duration: dur,
           volume: videoRef.current.volume,
           muted: videoRef.current.muted,
-          videoName,
-          hasSubtitles,
-          subtitlesVisible,
+          videoName: currentVideoName,
+          hasSubtitles: currentHasSubtitles,
+          subtitlesVisible: currentSubtitlesVisible,
           mediaType: 'video',
         };
+
+        // Save watch progress locally
+        if (dur > 0) {
+          try {
+            if (curTime > dur - 15) {
+              localStorage.removeItem(`mytv-progress-${id}`);
+            } else {
+              localStorage.setItem(
+                `mytv-progress-${id}`,
+                JSON.stringify({ currentTime: curTime, duration: dur })
+              );
+            }
+          } catch (e) {}
+        }
       } else {
         state = {
-          playing,
-          currentTime,
+          playing: currentPlaying,
+          currentTime: currentImageTime,
           duration: 5,
           volume: 0,
           muted: true,
-          videoName,
+          videoName: currentVideoName,
           hasSubtitles: false,
           subtitlesVisible: false,
           mediaType: 'image',
@@ -155,7 +247,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [id, playing, videoName, videoError, hasSubtitles, subtitlesVisible, mediaType, currentTime]);
+  }, [id]);
 
   // TV Remote: Poll and execute incoming commands from remote controller
   useEffect(() => {
@@ -164,7 +256,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
       if (mediaType === 'video' && !videoRef.current) return;
 
       try {
-        const res = await fetch(`/api/remote/${id}`);
+        const res = await fetch(`/api/remote/${id}`, { cache: 'no-store' });
         if (!res.ok) return;
         const data = await res.json();
         
@@ -254,7 +346,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
       window.clearTimeout(controlsTimeoutRef.current);
     }
     controlsTimeoutRef.current = window.setTimeout(() => {
-      if (playing) {
+      if (stateRef.current.playing) {
         setControlsVisible(false);
       }
     }, 2500) as unknown as number;
@@ -721,6 +813,32 @@ export default function PlayerPage({ params }: PlayerPageProps) {
             </div>
           </div>
         </div>
+
+        {/* Resume Prompt Toast */}
+        {showResumePrompt && resumeTime && (
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 border border-zinc-850 bg-zinc-950 p-4 rounded-md shadow-lg max-w-sm w-full flex flex-col gap-3 transition-all duration-300">
+            <div className="text-center sm:text-left">
+              <h5 className="text-xs font-semibold text-zinc-200">Resume Playback?</h5>
+              <p className="text-[11px] text-zinc-550 mt-1 font-mono">
+                You previously watched up to <span className="text-zinc-300 font-semibold">{formatTime(resumeTime)}</span>.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={handleStartOver}
+                className="bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[10px] font-mono font-semibold py-1.5 px-3 rounded text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                Start Over
+              </button>
+              <button
+                onClick={handleResumePlayback}
+                className="bg-zinc-200 hover:bg-zinc-100 text-[10px] font-mono font-semibold py-1.5 px-3 rounded text-zinc-950 transition-colors"
+              >
+                Resume ({formatTime(resumeTime)})
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Floating Top Header Back Button */}
         <div

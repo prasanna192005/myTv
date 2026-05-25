@@ -32,6 +32,5 @@ export const remoteStore = globalForRemote.remoteStore || {
   activeId: null,
 };
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForRemote.remoteStore = remoteStore;
-}
+globalForRemote.remoteStore = remoteStore;
+
