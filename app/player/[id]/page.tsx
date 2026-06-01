@@ -40,6 +40,9 @@ export default function PlayerPage({ params }: PlayerPageProps) {
   const [mediaType, setMediaType] = useState<'video' | 'image'>('video');
   const [resumeTime, setResumeTime] = useState<number | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [castConnected, setCastConnected] = useState(false);
+  const [castStream, setCastStream] = useState<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -68,8 +71,136 @@ export default function PlayerPage({ params }: PlayerPageProps) {
     };
   });
 
+  // WebRTC Screen Cast Receiver signaling & connection loop
+  useEffect(() => {
+    if (id !== 'cast') return;
+    
+    // Mute by default to bypass browser autoplay restrictions on live WebRTC streams
+    setMuted(true);
+
+    let active = true;
+    let signalingInterval: number;
+
+    const initReceiver = async () => {
+      // 1. Create Peer Connection
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+      peerConnectionRef.current = pc;
+
+      // 2. Track Remote Stream
+      pc.ontrack = (event) => {
+        console.log('Received WebRTC stream:', event.streams[0]);
+        if (event.streams && event.streams[0]) {
+          setCastStream(event.streams[0]);
+          setCastConnected(true);
+          setPlaying(true);
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log('WebRTC connection state change:', pc.connectionState);
+        if (pc.connectionState === 'connected') {
+          setCastConnected(true);
+          setPlaying(true);
+        } else if (
+          pc.connectionState === 'disconnected' ||
+          pc.connectionState === 'failed' ||
+          pc.connectionState === 'closed'
+        ) {
+          setCastConnected(false);
+          setPlaying(false);
+          setCastStream(null);
+        }
+      };
+
+      pc.onicecandidate = async (event) => {
+        if (event.candidate) {
+          try {
+            await fetch('/api/webrtc/cast-receiver', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'candidate', payload: event.candidate }),
+            });
+          } catch (e) {
+            console.error('Failed to send ICE candidate:', e);
+          }
+        }
+      };
+
+      // Clear any prior signals on load
+      try {
+        await fetch('/api/webrtc/cast-sender', { cache: 'no-store' });
+        await fetch('/api/webrtc/cast-receiver', { cache: 'no-store' });
+      } catch (e) {}
+
+      // 3. Poll signaling messages
+      signalingInterval = window.setInterval(async () => {
+        if (!active) return;
+        try {
+          const res = await fetch('/api/webrtc/cast-sender', { cache: 'no-store' });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.signals && data.signals.length > 0) {
+            for (const sig of data.signals) {
+              if (sig.type === 'offer') {
+                console.log('Received WebRTC offer');
+                await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                
+                await fetch('/api/webrtc/cast-receiver', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ type: 'answer', payload: answer }),
+                });
+              } else if (sig.type === 'candidate') {
+                console.log('Received remote ICE candidate');
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(sig.payload));
+                } catch (e) {
+                  console.error('Error adding ICE candidate', e);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error in WebRTC signaling loop:', e);
+        }
+      }, 1000);
+    };
+
+    initReceiver();
+
+    return () => {
+      active = false;
+      if (signalingInterval) clearInterval(signalingInterval);
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+      setCastConnected(false);
+      setCastStream(null);
+    };
+  }, [id]);
+
   // Fetch metadata and host IP for playback and TV sharing
   useEffect(() => {
+    if (id === 'cast') {
+      setVideoName('Screen Cast');
+      setMediaType('video');
+      
+      fetch('/api/config', { cache: 'no-store' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.hostIp) {
+            setHostIp(data.hostIp);
+          }
+        })
+        .catch((err) => console.error('Failed to get host IP:', err));
+      return;
+    }
+
     setVideoName(`Video ${id}`);
 
     fetch('/api/config', { cache: 'no-store' })
@@ -98,6 +229,7 @@ export default function PlayerPage({ params }: PlayerPageProps) {
 
   // Resume Progress checking on mount/metadata loaded
   useEffect(() => {
+    if (id === 'cast') return;
     if (!duration || mediaType !== 'video') return;
     
     try {
@@ -198,18 +330,18 @@ export default function PlayerPage({ params }: PlayerPageProps) {
 
         state = {
           playing: currentPlaying,
-          currentTime: curTime,
-          duration: dur,
+          currentTime: id === 'cast' ? 0 : curTime,
+          duration: id === 'cast' ? 0 : dur,
           volume: videoRef.current.volume,
           muted: videoRef.current.muted,
           videoName: currentVideoName,
-          hasSubtitles: currentHasSubtitles,
-          subtitlesVisible: currentSubtitlesVisible,
+          hasSubtitles: id === 'cast' ? false : currentHasSubtitles,
+          subtitlesVisible: id === 'cast' ? false : currentSubtitlesVisible,
           mediaType: 'video',
         };
 
         // Save watch progress locally
-        if (dur > 0) {
+        if (id !== 'cast' && dur > 0) {
           try {
             if (curTime > dur - 15) {
               localStorage.removeItem(`mytv-progress-${id}`);
@@ -605,40 +737,74 @@ export default function PlayerPage({ params }: PlayerPageProps) {
               Note: Un-transcoded H.265/MKV audio or video codecs are often unsupported natively in browsers. Consider using Chrome or Safari if you experience decoding problems.
             </p>
           </div>
+        ) : id === 'cast' ? (
+          /* WebRTC Screen Cast Receiver Viewport */
+          <div className="relative w-full h-full flex items-center justify-center bg-black">
+            {!castConnected ? (
+              <div className="max-w-md border border-zinc-800 bg-zinc-950 p-8 rounded-md text-center">
+                <div className="h-10 w-10 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                  <svg className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-zinc-200">Waiting for Cast Connection...</h3>
+                <p className="mt-2 text-xs text-zinc-400 leading-relaxed font-mono">
+                  Open this link on your computer to share your screen or tab:
+                </p>
+                <div className="mt-3 border border-zinc-850 bg-zinc-950 p-2.5 rounded text-[11px] font-mono text-zinc-350 select-all">
+                  http://{hostIp}:{typeof window !== 'undefined' ? window.location.port : '3000'}/cast
+                </div>
+                <p className="mt-4 text-[10px] text-zinc-600 leading-normal">
+                  Ensure both this TV screen and your laptop are connected to the same Wi-Fi/local network.
+                </p>
+              </div>
+            ) : (
+              <video
+                ref={(el) => {
+                  (videoRef as any).current = el;
+                  if (el && castStream && el.srcObject !== castStream) {
+                    el.srcObject = castStream;
+                  }
+                }}
+                autoPlay
+                playsInline
+                muted={muted}
+                className="h-full w-full object-contain max-h-screen"
+              />
+            )}
+          </div>
+        ) : mediaType === 'video' ? (
+          <video
+            ref={videoRef}
+            src={videoSrc}
+            autoPlay
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onError={handleVideoError}
+            onClick={handlePlayPause}
+            onDoubleClick={toggleFullscreen}
+            className="h-full w-full object-contain max-h-screen"
+          >
+            {hasSubtitles && (
+              <track
+                src={`/api/subtitles/${id}`}
+                kind="subtitles"
+                srcLang="en"
+                label="English"
+                default
+              />
+            )}
+          </video>
         ) : (
-          mediaType === 'video' ? (
-            <video
-              ref={videoRef}
-              src={videoSrc}
-              autoPlay
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
-              onError={handleVideoError}
-              onClick={handlePlayPause}
-              onDoubleClick={toggleFullscreen}
-              className="h-full w-full object-contain max-h-screen"
-            >
-              {hasSubtitles && (
-                <track
-                  src={`/api/subtitles/${id}`}
-                  kind="subtitles"
-                  srcLang="en"
-                  label="English"
-                  default
-                />
-              )}
-            </video>
-          ) : (
-            <img
-              src={`/api/media/image/${id}`}
-              alt={videoName}
-              onClick={handlePlayPause}
-              onDoubleClick={toggleFullscreen}
-              className="h-full w-full object-contain max-h-screen select-none"
-            />
-          )
+          <img
+            src={`/api/media/image/${id}`}
+            alt={videoName}
+            onClick={handlePlayPause}
+            onDoubleClick={toggleFullscreen}
+            className="h-full w-full object-contain max-h-screen select-none"
+          />
         )}
 
         {/* Custom Overlaid Video Controls */}
@@ -648,14 +814,16 @@ export default function PlayerPage({ params }: PlayerPageProps) {
           }`}
         >
           {/* Timeline Seekbar */}
-          <div className="mb-4 group/seekbar cursor-pointer" onClick={handleSeek}>
-            <div className="relative h-1.5 w-full bg-zinc-800 rounded-full group-hover/seekbar:h-2 transition-all">
-              <div
-                className="absolute left-0 top-0 h-full bg-zinc-200 rounded-full"
-                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-              />
+          {id !== 'cast' && (
+            <div className="mb-4 group/seekbar cursor-pointer" onClick={handleSeek}>
+              <div className="relative h-1.5 w-full bg-zinc-800 rounded-full group-hover/seekbar:h-2 transition-all">
+                <div
+                  className="absolute left-0 top-0 h-full bg-zinc-200 rounded-full"
+                  style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Buttons & Indicators */}
           <div className="flex items-center justify-between">
@@ -673,21 +841,23 @@ export default function PlayerPage({ params }: PlayerPageProps) {
               )}
 
               {/* Play / Pause */}
-              <button
-                onClick={handlePlayPause}
-                className="text-zinc-350 hover:text-zinc-100 transition-colors"
-                title={mediaType === 'video' ? (playing ? 'Pause (Space)' : 'Play (Space)') : (playing ? 'Pause Slideshow (Space)' : 'Play Slideshow (Space)')}
-              >
-                {playing ? (
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path fillRule="evenodd" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" clipRule="evenodd" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                )}
-              </button>
+              {id !== 'cast' && (
+                <button
+                  onClick={handlePlayPause}
+                  className="text-zinc-350 hover:text-zinc-100 transition-colors"
+                  title={mediaType === 'video' ? (playing ? 'Pause (Space)' : 'Play (Space)') : (playing ? 'Pause Slideshow (Space)' : 'Play Slideshow (Space)')}
+                >
+                  {playing ? (
+                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path fillRule="evenodd" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  )}
+                </button>
+              )}
 
               {mediaType === 'image' && (
                 <button
@@ -750,7 +920,12 @@ export default function PlayerPage({ params }: PlayerPageProps) {
 
               {/* Time Indicators */}
               <div className="text-xs font-mono text-zinc-400">
-                {mediaType === 'video' ? (
+                {id === 'cast' ? (
+                  <span className="text-green-500 uppercase tracking-wider font-bold text-[10px] flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-ping" />
+                    Live Screen Cast
+                  </span>
+                ) : mediaType === 'video' ? (
                   <>
                     {formatTime(currentTime)} <span className="text-zinc-650 font-sans">/</span> {formatTime(duration)}
                   </>

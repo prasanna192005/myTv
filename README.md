@@ -1,19 +1,20 @@
 # myTV
 
-A fast, seekable, dependency-free local network media streamer built with Next.js 16 and Tailwind CSS v4. It indexes video files from your computer and streams them to any smart TV, phone, tablet, or web browser on your home network with full support for scrub seeking (HTTP Range requests) and a dedicated mobile remote controller.
+A fast, seekable, dependency-free local network media streamer built with Next.js 16 and Tailwind CSS v4. It indexes video files from your computer and streams them to any smart TV, phone, tablet, or web browser on your home network with full support for scrub seeking (HTTP Range requests), a dedicated mobile remote controller, and WebRTC screen/tab mirroring.
 
 ---
 
 ## Key Features
 
 - **HTTP Range Requests (206 Partial Content)**: Custom stream engine built on Node.js streams. Handles seeking on massive files (20GB+) smoothly without buffering or crashing the server.
+- **Real-Time Screen & Tab Casting (WebRTC)**: Cast your computer screen, browser window, or browser tab directly to the TV over the local network. Uses peer-to-peer WebRTC connections for sub-100ms latency, high-resolution mirroring, and zero server CPU overhead. Includes optional audio casting.
 - **Phone Remote Control & Keyboard**: Scan a QR code on your TV, use your mobile keyboard to search your video library, tap to cast instantly to the TV browser, and control playback parameters (seek, volume, mute, fullscreen) remotely.
 - **Directory History & Switcher**: Add and scan any local folders (e.g. `D:\Movies`, `C:\Users\Videos`). Persists a history of up to 10 folders for fast, single-click library switching.
 - **Automated Subtitle Processing**: Scans directory for companion `.srt` or `.vtt` files next to videos. Automatically parses and converts SRT subtitles to WebVTT format on-the-fly, with toggle visibility synced between physical keyboards (`C` hotkey) and the mobile remote controller.
 - **Movie Poster Thumbnails**: Scans for companion image files next to videos (or default folder `poster.jpg`/`folder.jpg` metadata) to create a visual thumbnail card grid.
 - **Standalone Photo Slideshows**: Indexes standalone image files (JPEG, PNG, WEBP, GIF), displays them as high-resolution slideshows on the TV screen, and allows control (previous/next slide, play/pause) from your smartphone remote.
 - **Resume Playback & Watch Progress**: Automatically bookmarks your playback position in local storage. Renders visual red progress indicators on library cards and presents a self-dismissing "Resume Playback" prompt when reopening partly watched media.
-- **Quick Filtering & Search**: Instant searching, sorting by name/size, format filtering, and automatic subdirectory grouping.
+- **Quick Filtering & Search**: Instant searching, sorting by name/size, format filtering, and group subdirectories.
 - **Touch & Keyboard Playback**: Fully customizable theater player supporting mobile touch controls and rich keyboard shortcuts.
 - **Secure Local Sandbox**: Restricts video access explicitly to your configured directories to prevent directory traversal attacks.
 - **Clean & Simple**: Zero cloud dependencies, zero external database setup, zero FFmpeg complexity. Runs completely offline.
@@ -39,9 +40,11 @@ A fast, seekable, dependency-free local network media streamer built with Next.j
 │   │   ├── stream/[id]/        # Chunked HTTP Range video streaming server
 │   │   ├── subtitles/[id]/     # Dynamic SRT-to-WebVTT parser & subtitle server
 │   │   ├── media/image/[id]/   # Dynamic secure image server (photos and posters)
-│   │   └── remote/             # Pairing command queues and state sync endpoints
-│   ├── player/[id]/            # Immersive custom video player page (TV / Client)
+│   │   ├── remote/             # Pairing command queues and state sync endpoints
+│   │   └── webrtc/[id]/        # WebRTC peer-to-peer signaling channel queues
+│   ├── player/[id]/            # Immersive custom video player page (TV / Client / WebRTC)
 │   ├── remote/                 # Client phone remote controller view
+│   ├── cast/                   # Local desktop screen and tab casting sender
 │   ├── globals.css             # High-contrast dark theme stylesheet
 │   ├── layout.tsx              # Metadata, HTML root, and default layout configuration
 │   └── page.tsx                # Main library dashboard & TV poller
@@ -86,6 +89,17 @@ Once the homepage is loaded on your TV, you never need to type links or search w
 3. Tap the search bar on your phone to filter titles using your mobile keyboard.
 4. Tap any video in the list on your phone, and it will automatically open and play on the TV screen!
 5. The phone remote will instantly transform into a touch playback controller.
+
+---
+
+## Screen & Tab Casting
+
+myTV includes native support for real-time local network screen mirroring via WebRTC:
+1. Click **Cast Screen** on the TV dashboard header (or trigger it remotely using the mobile remote control page).
+2. The TV screen will enter receiver mode and wait for connection signals.
+3. Open `http://<host-ip>:3000/cast` on the laptop or desktop computer you wish to cast from.
+4. Click **Share Screen** on the casting page, choose the target window, full desktop, or specific browser tab, and tap "Share".
+5. The feed will autoplay on the TV screen in real-time. Check **Include Tab Audio** on Chrome to route stream sound to the TV speakers.
 
 ---
 

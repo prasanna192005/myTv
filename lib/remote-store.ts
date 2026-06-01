@@ -20,6 +20,7 @@ interface GlobalRemoteStore {
   commands: Record<string, RemoteCommand[]>;
   states: Record<string, PlayerState>;
   activeId: string | null;
+  webrtcSignals: Record<string, any[]>;
 }
 
 const globalForRemote = global as unknown as {
@@ -30,6 +31,7 @@ export const remoteStore = globalForRemote.remoteStore || {
   commands: {},
   states: {},
   activeId: null,
+  webrtcSignals: {},
 };
 
 globalForRemote.remoteStore = remoteStore;

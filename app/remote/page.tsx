@@ -334,9 +334,23 @@ export default function RemotePage() {
         /* LIBRARY CONTROLLER VIEW (NO VIDEO RUNNING) */
         <div className="flex flex-col flex-1 p-6 justify-start">
           {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-md font-bold tracking-tight text-zinc-200 font-mono">myTV Controller</h1>
-            <p className="text-xs text-zinc-550 mt-1">TV Screen is idle. Type to search or tap a video to launch on TV.</p>
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-md font-bold tracking-tight text-zinc-200 font-mono">myTV Controller</h1>
+              <p className="text-xs text-zinc-550 mt-1">
+                TV Screen is idle. Tap a video to play, or{' '}
+                <a href="/cast" className="text-zinc-400 underline hover:text-zinc-200 font-medium">
+                  cast screen
+                </a>.
+              </p>
+            </div>
+            <button
+              onClick={() => sendCommand('open_video', 'cast')}
+              className="border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-2.5 py-1.5 text-[9px] font-bold font-mono text-zinc-400 rounded shrink-0 uppercase tracking-wide active:scale-95 transition-transform"
+              title="Switch TV Screen to casting mode"
+            >
+              Cast Screen
+            </button>
           </div>
 
           {/* Keyboard Input Search bar */}

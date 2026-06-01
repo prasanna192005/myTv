@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import VideoGrid from '@/components/VideoGrid';
 import SettingsModal from '@/components/SettingsModal';
 import { VideoFile } from '@/lib/videos';
@@ -108,6 +109,19 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Cast Screen */}
+          {config && config.exists && (
+            <Link
+              href="/player/cast"
+              className="flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 text-xs font-medium text-zinc-350 hover:text-zinc-200 rounded-md transition-colors font-mono"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Cast Screen
+            </Link>
+          )}
+
           {/* Pair phone remote */}
           {config && config.exists && (
             <button
