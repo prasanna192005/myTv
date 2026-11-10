@@ -6,6 +6,12 @@ import VideoGrid from '@/components/VideoGrid';
 import SettingsModal from '@/components/SettingsModal';
 import { VideoFile } from '@/lib/videos';
 
+interface ActivePlayback {
+  videoId: string;
+  videoName: string;
+  playing: boolean;
+}
+
 export default function Home() {
   const [config, setConfig] = useState<{ mediaDirectory: string; exists: boolean; hostIp?: string; recentDirectories?: string[] } | null>(null);
   const [videos, setVideos] = useState<VideoFile[]>([]);
@@ -14,6 +20,7 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [remotePairOpen, setRemotePairOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activePlayback, setActivePlayback] = useState<ActivePlayback | null>(null);
 
   const fetchConfigAndVideos = async (forceScan = false) => {
     try {
@@ -78,6 +85,41 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const updateActivePlayback = async () => {
+      try {
+        const res = await fetch('/api/remote/active/state', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error('Failed to check active playback');
+        }
+
+        const data = await res.json();
+        if (!active) return;
+        if (data.active && data.videoId && data.state) {
+          setActivePlayback({
+            videoId: String(data.videoId),
+            videoName: String(data.state.videoName || 'Media'),
+            playing: Boolean(data.state.playing),
+          });
+        } else {
+          setActivePlayback(null);
+        }
+      } catch (err) {
+        if (active) {
+          console.error('Failed to check active playback', err);
+        }
+      }
+    };
+
+    updateActivePlayback();
+    const interval = setInterval(updateActivePlayback, 2500);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const handleSaveConfig = () => {
     // Re-fetch all config and list on saving settings
     fetchConfigAndVideos(true);
@@ -92,77 +134,66 @@ export default function Home() {
 
   return (
     <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col justify-start">
-      {/* Header */}
-      <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <header className="mb-8 flex flex-col gap-5 border-b border-zinc-800 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight text-zinc-100 font-mono">myTV</h1>
-            <span className="bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-medium font-mono text-zinc-400 rounded">
-              LOCAL
-            </span>
-          </div>
-          {config && config.exists && (
-            <p className="mt-1 text-xs text-zinc-400 font-mono">
-              Scanned Path: <span className="text-zinc-350 bg-zinc-900 border border-zinc-850 px-1 py-0.5 rounded text-[11px]">{config.mediaDirectory}</span>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">myTV</h1>
+          {config?.exists ? (
+            <p
+              className="mt-1 truncate text-sm text-zinc-500"
+              title={config.mediaDirectory}
+            >
+              Folder · {config.mediaDirectory.split(/[\\/]/).filter(Boolean).pop() || config.mediaDirectory}
             </p>
+          ) : (
+            <p className="mt-1 text-sm text-zinc-500">Your local media library</p>
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Cast Screen */}
+        <nav aria-label="Library actions" className="flex flex-wrap items-center gap-2">
           {config && config.exists && (
             <Link
               href="/player/cast"
-              className="flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 text-xs font-medium text-zinc-350 hover:text-zinc-200 rounded-md transition-colors font-mono"
+              className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Cast Screen
+              Cast screen
             </Link>
           )}
 
-          {/* Pair phone remote */}
           {config && config.exists && (
             <button
               onClick={() => setRemotePairOpen(true)}
-              className="flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 text-xs font-medium text-zinc-350 hover:text-zinc-200 rounded-md transition-colors"
+              className="rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.8}
-                  d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
-                />
-              </svg>
-              Phone Remote
+              Phone remote
             </button>
           )}
 
-          {/* Library settings */}
           <button
             onClick={() => setSettingsOpen(true)}
-            className="flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-3 py-1.5 text-xs font-medium text-zinc-350 hover:text-zinc-200 rounded-md transition-colors"
+            className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-white"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.8}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.8}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-            Library Folder
+            Library folder
           </button>
-        </div>
-      </div>
+        </nav>
+      </header>
+
+      {activePlayback && (
+        <Link
+          href={`/player/${activePlayback.videoId}`}
+          className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3 transition-colors hover:border-zinc-600 hover:bg-zinc-900"
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2 text-xs text-zinc-500">
+              <span className={`h-2 w-2 rounded-full ${activePlayback.playing ? 'bg-green-500' : 'bg-zinc-500'}`} />
+              {activePlayback.playing ? 'Now playing' : 'Player open'}
+            </span>
+            <span className="mt-1 block truncate text-sm font-medium text-zinc-200">
+              {activePlayback.videoName}
+            </span>
+          </span>
+          <span className="shrink-0 text-sm text-zinc-300">Back to player →</span>
+        </Link>
+      )}
 
       {/* Main Content Area */}
       {loading ? (
@@ -182,24 +213,16 @@ export default function Home() {
           </button>
         </div>
       ) : config && !config.exists ? (
-        <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-zinc-800 py-16 text-center rounded-md">
-          <svg className="h-12 w-12 text-zinc-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-            />
-          </svg>
-          <h2 className="text-base font-semibold text-zinc-200">No Scanned Folder Connected</h2>
-          <p className="mt-2 text-xs text-zinc-500 max-w-sm">
-            Please configure the library to point to an existing local folder with video files (e.g., MP4, MKV, WebM) on this machine.
+        <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 px-6 py-20 text-center">
+          <h2 className="text-lg font-semibold text-zinc-100">Choose your media folder</h2>
+          <p className="mt-2 max-w-sm text-sm text-zinc-500">
+            Pick a folder on this computer to browse and play its videos and photos.
           </p>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="mt-5 bg-zinc-100 hover:bg-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-950 rounded-md transition-colors"
+            className="mt-5 rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-white"
           >
-            Configure Library Folder
+            Choose folder
           </button>
         </div>
       ) : (

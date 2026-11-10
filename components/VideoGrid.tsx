@@ -79,6 +79,31 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
     return result;
   }, [videos, search, selectedFolder, selectedFormat, sortBy, mediaTypeFilter]);
 
+  const continueWatching = useMemo(
+    () =>
+      videos
+        .filter((video) => {
+          const progress = progressMap[video.id];
+          return (
+            video.type === 'video' &&
+            progress?.duration > 0 &&
+            progress.currentTime > 10 &&
+            progress.currentTime < progress.duration - 15
+          );
+        })
+        .slice(0, 6),
+    [videos, progressMap],
+  );
+
+  const activeFilterCount = Number(Boolean(selectedFolder)) + Number(Boolean(selectedFormat));
+
+  const clearFilters = () => {
+    setSearch('');
+    setSelectedFolder('');
+    setSelectedFormat('');
+    setMediaTypeFilter('all');
+  };
+
   const handleShareClick = (e: React.MouseEvent, video: VideoFile) => {
     e.preventDefault();
     e.stopPropagation();
@@ -93,116 +118,19 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
 
   return (
     <div className="space-y-6">
-      {/* Media Type Tabs */}
-      <div className="flex border-b border-zinc-850 pb-px gap-6 text-sm select-none">
-        <button
-          onClick={() => { setMediaTypeFilter('all'); setSelectedFormat(''); setSelectedFolder(''); }}
-          className={`pb-2.5 font-medium border-b-2 transition-all ${
-            mediaTypeFilter === 'all'
-              ? 'border-zinc-200 text-zinc-100 font-semibold'
-              : 'border-transparent text-zinc-550 hover:text-zinc-350'
-          }`}
-        >
-          All Media ({videos.length})
-        </button>
-        <button
-          onClick={() => { setMediaTypeFilter('video'); setSelectedFormat(''); setSelectedFolder(''); }}
-          className={`pb-2.5 font-medium border-b-2 transition-all ${
-            mediaTypeFilter === 'video'
-              ? 'border-zinc-200 text-zinc-100 font-semibold'
-              : 'border-transparent text-zinc-550 hover:text-zinc-350'
-          }`}
-        >
-          Videos ({videos.filter(v => v.type === 'video').length})
-        </button>
-        <button
-          onClick={() => { setMediaTypeFilter('image'); setSelectedFormat(''); setSelectedFolder(''); }}
-          className={`pb-2.5 font-medium border-b-2 transition-all ${
-            mediaTypeFilter === 'image'
-              ? 'border-zinc-200 text-zinc-100 font-semibold'
-              : 'border-transparent text-zinc-550 hover:text-zinc-350'
-          }`}
-        >
-          Photos ({videos.filter(v => v.type === 'image').length})
-        </button>
-      </div>
-
-      {/* Filters Toolbar */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border border-zinc-800 bg-zinc-900/40 p-4 rounded-md">
-        <div className="flex flex-1 flex-col gap-3 sm:flex-row">
-          {/* Search */}
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder={`Search ${mediaTypeFilter === 'all' ? 'library' : mediaTypeFilter === 'video' ? 'videos' : 'photos'}...`}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full border border-zinc-800 bg-zinc-950 px-3 py-2 pl-9 text-sm text-zinc-100 placeholder-zinc-550 rounded-md focus:outline-none focus:border-zinc-700"
-            />
-            <svg
-              className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-          </div>
-
-          {/* Folder Filter */}
-          {folders.length > 0 && (
-            <select
-              value={selectedFolder}
-              onChange={(e) => setSelectedFolder(e.target.value)}
-              className="border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 rounded-md focus:outline-none focus:border-zinc-700"
-            >
-              <option value="">All folders</option>
-              {folders.map((folder) => (
-                <option key={folder} value={folder}>
-                  {folder}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Format Filter */}
-          {formats.length > 1 && (
-            <select
-              value={selectedFormat}
-              onChange={(e) => setSelectedFormat(e.target.value)}
-              className="border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 rounded-md focus:outline-none focus:border-zinc-700"
-            >
-              <option value="">All formats</option>
-              {formats.map((format) => (
-                <option key={format} value={format}>
-                  {format.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Sort By */}
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 rounded-md focus:outline-none focus:border-zinc-700"
-          >
-            <option value="name">Sort by Name</option>
-            <option value="size">Sort by Size</option>
-            {folders.length > 0 && <option value="folder">Sort by Folder</option>}
-          </select>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-100">Library</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            {processedVideos.length === videos.length
+              ? `${videos.length} items`
+              : `${processedVideos.length} of ${videos.length} items`}
+          </p>
         </div>
-
-        {/* Rescan trigger */}
         <button
           onClick={() => onRefresh()}
           disabled={scanning}
-          className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 rounded-md transition-colors disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-zinc-800 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-900 disabled:opacity-50"
         >
           <svg
             className={`h-4 w-4 ${scanning ? 'animate-spin' : ''}`}
@@ -217,9 +145,181 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3m-3-3v12"
             />
           </svg>
-          {scanning ? 'Scanning...' : 'Rescan Folder'}
+          {scanning ? 'Scanning...' : 'Rescan'}
         </button>
       </div>
+
+      <div className="flex gap-2" role="group" aria-label="Filter by media type">
+        {([
+          ['all', 'All'],
+          ['video', 'Videos'],
+          ['image', 'Photos'],
+        ] as const).map(([type, label]) => {
+          const count = type === 'all' ? videos.length : videos.filter((video) => video.type === type).length;
+          return (
+            <button
+              key={type}
+              onClick={() => {
+                setMediaTypeFilter(type);
+                setSelectedFormat('');
+                setSelectedFolder('');
+              }}
+              aria-pressed={mediaTypeFilter === type}
+              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                mediaTypeFilter === type
+                  ? 'bg-zinc-100 font-medium text-zinc-950'
+                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+              }`}
+            >
+              {label} <span className={mediaTypeFilter === type ? 'opacity-60' : 'text-zinc-600'}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <input
+          type="search"
+          aria-label="Search library"
+          placeholder={`Search ${mediaTypeFilter === 'all' ? 'library' : mediaTypeFilter === 'video' ? 'videos' : 'photos'}...`}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-zinc-600 focus:outline-none"
+        />
+        <details className="relative">
+          <summary className="cursor-pointer list-none rounded-md border border-zinc-800 px-4 py-3 text-center text-sm text-zinc-300 transition-colors hover:bg-zinc-900 sm:min-w-32">
+            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''} & sort
+          </summary>
+          <div className="absolute right-0 z-20 mt-2 grid w-64 gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-3 shadow-xl">
+            {folders.length > 0 && (
+              <select
+                aria-label="Filter by folder"
+                value={selectedFolder}
+                onChange={(e) => setSelectedFolder(e.target.value)}
+                className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 focus:border-zinc-600 focus:outline-none"
+              >
+                <option value="">All folders</option>
+                {folders.map((folder) => (
+                  <option key={folder} value={folder}>
+                    {folder}
+                  </option>
+                ))}
+              </select>
+            )}
+            {formats.length > 1 && (
+              <select
+                aria-label="Filter by format"
+                value={selectedFormat}
+                onChange={(e) => setSelectedFormat(e.target.value)}
+                className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 focus:border-zinc-600 focus:outline-none"
+              >
+                <option value="">All formats</option>
+                {formats.map((format) => (
+                  <option key={format} value={format}>
+                    {format.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              aria-label="Sort library"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'name' | 'size' | 'folder')}
+              className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 focus:border-zinc-600 focus:outline-none"
+            >
+              <option value="name">Name</option>
+              <option value="size">File size</option>
+              {folders.length > 0 && <option value="folder">Folder</option>}
+            </select>
+          </div>
+        </details>
+      </div>
+
+      {(search || selectedFolder || selectedFormat) && (
+        <div className="flex flex-wrap items-center gap-2" aria-label="Active filters">
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              aria-label={`Clear search: ${search}`}
+            >
+              Search: {search} <span aria-hidden="true">×</span>
+            </button>
+          )}
+          {selectedFolder && (
+            <button
+              onClick={() => setSelectedFolder('')}
+              className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              aria-label={`Clear folder filter: ${selectedFolder}`}
+            >
+              {selectedFolder} <span aria-hidden="true">×</span>
+            </button>
+          )}
+          {selectedFormat && (
+            <button
+              onClick={() => setSelectedFormat('')}
+              className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              aria-label={`Clear format filter: ${selectedFormat}`}
+            >
+              {selectedFormat.replace('.', '').toUpperCase()} <span aria-hidden="true">×</span>
+            </button>
+          )}
+          <button
+            onClick={clearFilters}
+            className="px-2 py-1 text-xs text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {continueWatching.length > 0 && (
+        <section aria-labelledby="continue-watching-heading" className="space-y-3">
+          <div>
+            <h3 id="continue-watching-heading" className="text-base font-semibold text-zinc-100">
+              Continue watching
+            </h3>
+            <p className="mt-1 text-sm text-zinc-500">Pick up where you left off</p>
+          </div>
+          <div className="flex gap-4 overflow-x-auto pb-2">
+            {continueWatching.map((video) => {
+              const progress = progressMap[video.id];
+              const progressPercent = Math.min(100, (progress.currentTime / progress.duration) * 100);
+              return (
+                <Link
+                  key={video.id}
+                  href={`/player/${video.id}`}
+                  className="group w-52 shrink-0 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 transition-colors hover:border-zinc-600 sm:w-60"
+                >
+                  <div className="relative aspect-video bg-zinc-950">
+                    {video.posterPath ? (
+                      <img
+                        src={`/api/media/image/${video.id}?poster=true`}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-zinc-700">
+                        <span className="text-xs">No poster</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-700">
+                      <div className="h-full bg-red-500" style={{ width: `${progressPercent}%` }} />
+                    </div>
+                  </div>
+                  <div className="p-3">
+                    <p className="truncate text-sm font-medium text-zinc-200">{video.name}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {Math.round(progressPercent)}% watched · Resume
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Grid List */}
       {processedVideos.length === 0 ? (
@@ -245,7 +345,7 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {processedVideos.map((video) => {
             const progress = progressMap[video.id];
             const progressPercent = progress ? (progress.currentTime / progress.duration) * 100 : 0;
@@ -256,7 +356,9 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
                 className="group flex flex-col overflow-hidden border border-zinc-850 bg-zinc-900 rounded-md transition-all hover:border-zinc-750 hover:bg-zinc-900/90 shadow-sm relative"
               >
                 {/* Media Card Thumbnail Section */}
-                <div className="relative aspect-video w-full bg-zinc-950 border-b border-zinc-850/80 overflow-hidden flex items-center justify-center select-none">
+                <div className={`relative w-full bg-zinc-950 border-b border-zinc-850/80 overflow-hidden flex items-center justify-center select-none ${
+                  video.type === 'video' ? 'aspect-[2/3]' : 'aspect-video'
+                }`}>
                   {video.type === 'video' ? (
                     video.posterPath ? (
                       <img
@@ -329,11 +431,10 @@ export default function VideoGrid({ videos, onRefresh, scanning, hostIp }: Video
                   </div>
 
                   {/* Card Specs Footer */}
-                  <div className="mt-4 flex items-center justify-between border-t border-zinc-850/60 pt-3">
-                    <span className="text-xs text-zinc-500 font-mono">{video.formattedSize}</span>
-                    <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono font-medium border border-zinc-800 text-zinc-500 rounded bg-zinc-950 uppercase">
-                      {video.extension.replace('.', '')}
-                    </span>
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-600">
+                    <span>{video.extension.replace('.', '').toUpperCase()}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{video.formattedSize}</span>
                   </div>
                 </div>
               </Link>

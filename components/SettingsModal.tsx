@@ -13,6 +13,29 @@ export default function SettingsModal({ currentPath, recentPaths, onClose, onSav
   const [pathValue, setPathValue] = useState(currentPath);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const canBrowse = typeof window !== 'undefined' &&
+    ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+  const handleBrowse = async () => {
+    setError(null);
+    setBrowsing(true);
+
+    try {
+      const res = await fetch('/api/config/pick-folder', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Could not open the folder picker');
+      }
+      if (data.path) {
+        setPathValue(data.path);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open the folder picker');
+    } finally {
+      setBrowsing(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,18 +83,32 @@ export default function SettingsModal({ currentPath, recentPaths, onClose, onSav
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium uppercase tracking-wider text-zinc-400 mb-2">
-              Media Directory (Absolute Path)
+              Media folder
             </label>
-            <input
-              type="text"
-              value={pathValue}
-              onChange={(e) => setPathValue(e.target.value)}
-              placeholder="e.g., C:\Users\Username\Videos"
-              className="w-full border border-zinc-850 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-650 rounded-md focus:outline-none focus:border-zinc-750"
-              required
-            />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                value={pathValue}
+                onChange={(e) => setPathValue(e.target.value)}
+                placeholder="Select or enter a folder path"
+                className="min-w-0 flex-1 border border-zinc-850 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-650 rounded-md focus:outline-none focus:border-zinc-750"
+                required
+              />
+              {canBrowse && (
+                <button
+                  type="button"
+                  onClick={handleBrowse}
+                  disabled={loading || browsing}
+                  className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {browsing ? 'Opening...' : 'Browse'}
+                </button>
+              )}
+            </div>
             <p className="mt-1 text-xs text-zinc-500">
-              The application scans this folder recursively for video files.
+              {canBrowse
+                ? 'Browse for a folder or enter its full path. myTV scans it for videos and photos.'
+                : 'Open myTV on this computer using localhost to browse. You can also enter the full path here.'}
             </p>
           </div>
 
@@ -112,14 +149,14 @@ export default function SettingsModal({ currentPath, recentPaths, onClose, onSav
             <button
               type="button"
               onClick={onClose}
-              disabled={loading}
+              disabled={loading || browsing}
               className="border border-zinc-800 bg-zinc-900 hover:bg-zinc-850 px-4 py-2 text-sm font-medium text-zinc-300 rounded-md transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || browsing}
               className="bg-zinc-100 hover:bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-950 rounded-md transition-colors disabled:opacity-50"
             >
               {loading ? 'Validating...' : 'Save Folder'}
