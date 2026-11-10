@@ -75,6 +75,8 @@ Start the development server. The project is pre-configured to bind to all netwo
 npm run dev
 ```
 
+On Windows, you can instead double-click `start-mytv.bat` in the project folder. It opens a console with live server output, opens the app in your default browser once the server is ready, and writes a copy of the output to `mytv.log`. Keep the console window open while using myTV; press `Ctrl+C` there to stop the server. If dependencies are missing, the script installs them first.
+
 ### 3. Open the App
 - **Host computer**: Open [http://localhost:3000](http://localhost:3000)
 - **On your TV / Network Devices**: Look at the header of the host page for your physical network URL (e.g. `http://192.168.1.100:3000`). Type this URL into your TV browser.
